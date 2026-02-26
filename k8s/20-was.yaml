@@ -25,7 +25,8 @@ spec:
     spec:
       containers:
         - name: was
-          image: was:local
+          image: rainhyeon/three-tier-was:v1
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:

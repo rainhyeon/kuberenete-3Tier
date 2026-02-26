@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>3-Tier Lab</title>
+  </head>
+  <body>
+    <h1>3-Tier Lab (web -> was -> db)</h1>
+    <button id="btn">Call /api/ping</button>
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById("out");
+      document.getElementById("btn").onclick = async () => {
+        out.textContent = "calling...";
+        try {
+          const r = await fetch("/api/ping");
+          const t = await r.text();
+          out.textContent = t;
+        } catch (e) {
+          out.textContent = String(e);
+        }
+      };
+    </script>
+  </body>
+</html>

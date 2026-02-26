@@ -1,4 +1,4 @@
-# kuberenete-3Tier
+# kuberenete-3Tier 구축
 쿠버네티스에 배포할 3Tier 구축
 
 
@@ -158,6 +158,342 @@ location /api/ {
 ```
 - DB와 잘 연결되는 것을 확인할 수 있다
 
+## 6. iptable 확인
+```
+node01:~$ sudo iptables -t nat -L -n -v | grep -i three-tier
+    0     0 KUBE-MARK-MASQ  0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* masquerade traffic for three-tier/web external destinations */
+    0     0 KUBE-EXT-KNWFBHKZ4E3RECU6  6    --  *      *       0.0.0.0/0            127.0.0.0/8          /* three-tier/web */ tcp dpt:30688 nfacct-name  localhost_nps_accepted_pkts
+    0     0 KUBE-EXT-KNWFBHKZ4E3RECU6  6    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/web */ tcp dpt:30688
+    0     0 KUBE-MARK-MASQ  0    --  *      *       192.168.1.4          0.0.0.0/0            /* three-tier/db */
+    1    60 DNAT       6    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/db */ tcp to:192.168.1.4:5432
+    0     0 KUBE-MARK-MASQ  0    --  *      *       192.168.1.7          0.0.0.0/0            /* three-tier/web */
+    1    60 DNAT       6    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/web */ tcp to:192.168.1.7:8080
+    0     0 KUBE-MARK-MASQ  0    --  *      *       192.168.1.5          0.0.0.0/0            /* three-tier/was */
+    1    60 DNAT       6    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/was */ tcp to:192.168.1.5:8080
+    0     0 KUBE-MARK-MASQ  0    --  *      *       192.168.1.6          0.0.0.0/0            /* three-tier/was */
+    0     0 DNAT       6    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/was */ tcp to:192.168.1.6:8080
+    1    60 KUBE-SVC-HKZHEGDCHKYDZHT2  6    --  *      *       0.0.0.0/0            10.96.80.152         /* three-tier/db cluster IP */ tcp dpt:5432
+    1    60 KUBE-SVC-OJARZYDBC2YBWB7N  6    --  *      *       0.0.0.0/0            10.102.18.214        /* three-tier/was cluster IP */ tcp dpt:80
+    1    60 KUBE-SVC-KNWFBHKZ4E3RECU6  6    --  *      *       0.0.0.0/0            10.97.8.255          /* three-tier/web cluster IP */ tcp dpt:80
+    0     0 KUBE-MARK-MASQ  6    --  *      *      !192.168.0.0/16       10.96.80.152         /* three-tier/db cluster IP */ tcp dpt:5432
+    1    60 KUBE-SEP-LUX7EMOFFC77R3P4  0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/db -> 192.168.1.4:5432 */
+    0     0 KUBE-MARK-MASQ  6    --  *      *      !192.168.0.0/16       10.97.8.255          /* three-tier/web cluster IP */ tcp dpt:80
+    1    60 KUBE-SEP-NHAO6WC3G2JJERLX  0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/web -> 192.168.1.7:8080 */
+    0     0 KUBE-MARK-MASQ  6    --  *      *      !192.168.0.0/16       10.102.18.214        /* three-tier/was cluster IP */ tcp dpt:80
+    1    60 KUBE-SEP-NUSDDAKE6UKWRFTS  0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/was -> 192.168.1.5:8080 */ statistic mode random probability 0.50000000000
+    0     0 KUBE-SEP-OUD6CWY7HGPBH4PB  0    --  *      *       0.0.0.0/0            0.0.0.0/0            /* three-tier/was -> 192.168.1.6:8080 */
+```
+📍 예시 의미
+| pkts | bytes | target | prot | opt | in | out | source      | destination | 주석부분 |
+|------|-------|--------|------|-----|----|-----|------------|-------------|----------|
+| 1    | 60    | DNAT   | 6    | --  | *  | *   | 0.0.0.0/0  | 0.0.0.0/0   | /* three-tier/was */ tcp to:192.168.1.5:8080 |
+- 1개 패킷이
+- 60바이트 크기로
+- TCP 프로토콜이며
+- 어떤 인터페이스든 상관없이
+- 목적지를
+- 192.168.1.5:8080 으로 바꿨다
+
+📍 항목 뜻
+| 항목              | 의미            | 설명                                                               |
+| --------------- | ------------- | ---------------------------------------------------------------- |
+| **pkts**        | 패킷 수          | 해당 규칙을 통과한 패킷 개수. 규칙이 실제로 사용되고 있는지 판단하는 핵심 지표                    |
+| **bytes**       | 바이트 수         | 해당 규칙을 통과한 총 데이터 크기                                              |
+| **target**      | 실행 동작         | 규칙이 수행하는 동작. 예: `DNAT`, `SNAT`, `KUBE-SVC-XXXX`, `KUBE-SEP-XXXX` |
+| **prot**        | 프로토콜          | `6=TCP`, `17=UDP`, `1=ICMP`                                      |
+| **opt**         | 옵션            | 일반적으로 `--`, 특별한 옵션이 있을 경우 표시                                     |
+| **in**          | 입력 인터페이스      | 패킷이 들어오는 네트워크 인터페이스 (`*` = 전체)                                   |
+| **out**         | 출력 인터페이스      | 패킷이 나가는 네트워크 인터페이스 (`*` = 전체)                                    |
+| **source**      | 출발지 IP        | 매칭되는 출발지 주소 범위                                                   |
+| **destination** | 목적지 IP        | 매칭되는 목적지 주소 범위                                                   |
+| **주석부분**        | kube-proxy 설명 | 어떤 Service/Namespace인지와 실제 DNAT 대상 Pod IP 표시                     |
+
+# Kubernetes 3-Tier 네트워크 통신 흐름 분석  
+### (Pod A → WEB → WAS → DB)
+
+---
+
+## 🧾 시나리오
+
+Pod A에서 다음 명령을 실행한다.
+
+```bash
+curl http://web/api/ping
+```
+
+통신 경로:
+
+```
+Pod A 
+  → WEB Service 
+  → WEB Pod 
+  → WAS Service 
+  → WAS Pod 
+  → DB Service 
+  → DB Pod
+```
+
+이 문서는 해당 과정에서 **iptables가 어떤 순서로 동작하는지**를 설명한다.
+
+---
+
+# 1️⃣ 전체 네트워크 흐름 개요
+
+```
+Pod A
+  ↓
+ClusterIP (web)
+  ↓
+WEB Pod
+  ↓
+ClusterIP (was)
+  ↓
+WAS Pod
+  ↓
+ClusterIP (db)
+  ↓
+DB Pod
+```
+
+✔ 각 Service 통신마다 **iptables NAT(DNAT)** 이 수행된다.
+
+---
+
+# 2️⃣ Pod A → WEB Service 통신 과정
+
+## ① DNS 해석
+
+```
+web.three-tier.svc.cluster.local
+→ 10.97.8.255 (ClusterIP)
+```
+
+---
+
+## ② Pod → Node 브리지
+
+```
+Pod A
+  ↓ (veth)
+Node Bridge (cni0 / flannel.1)
+```
+
+Pod 네트워크는 veth를 통해 Node 브리지로 전달된다.
+
+---
+
+## ③ iptables NAT 처리 (PREROUTING)
+
+```
+nat 테이블
+PREROUTING
+  ↓
+KUBE-SERVICES
+```
+
+매칭 조건:
+
+```
+destination = 10.97.8.255
+```
+
+점프:
+
+```
+→ KUBE-SVC-XXXX
+```
+
+---
+
+## ④ Service → Endpoint 선택
+
+```
+KUBE-SVC-XXXX
+  ↓
+KUBE-SEP-XXXX
+```
+
+---
+
+## ⑤ DNAT 수행
+
+```
+DNAT → 192.168.1.7:8080 (WEB Pod IP)
+```
+
+ClusterIP가 실제 Pod IP로 변경된다.
+
+---
+
+## ⑥ FORWARD 체인
+
+```
+filter 테이블
+FORWARD
+```
+
+허용되면:
+
+```
+Node → veth → WEB Pod
+```
+
+---
+
+# 3️⃣ WEB → WAS 통신 과정
+
+WEB 컨테이너 내부:
+
+```nginx
+proxy_pass http://was;
+```
+
+DNS:
+
+```
+was → 10.102.18.214
+```
+
+동일한 iptables 흐름 반복:
+
+```
+PREROUTING (nat)
+  ↓
+KUBE-SERVICES
+  ↓
+KUBE-SVC-XXXX
+  ↓
+KUBE-SEP-XXXX
+  ↓
+DNAT → 192.168.1.5:8080 (WAS Pod)
+  ↓
+FORWARD
+```
+
+---
+
+# 4️⃣ WAS → DB 통신 과정
+
+WAS 내부:
+
+```python
+psycopg2.connect(host="db", port=5432)
+```
+
+DNS:
+
+```
+db → 10.96.80.152
+```
+
+iptables 흐름:
+
+```
+PREROUTING (nat)
+  ↓
+KUBE-SVC-XXXX
+  ↓
+KUBE-SEP-XXXX
+  ↓
+DNAT → 192.168.1.4:5432 (DB Pod)
+  ↓
+FORWARD
+```
+
+---
+
+# 5️⃣ 응답 패킷 처리
+
+DNAT이 수행되면 Linux 커널의 **conntrack** 이 세션을 기록한다.
+
+응답 경로:
+
+```
+DB Pod 
+  → WAS Pod 
+  → WEB Pod 
+  → Pod A
+```
+
+필요 시:
+
+```
+POSTROUTING (nat)
+  ↓
+MASQUERADE (SNAT)
+```
+
+---
+
+# 6️⃣ iptables 체인 순서 요약
+
+각 Service 통신마다 반복되는 체인 순서:
+
+```
+1. nat PREROUTING
+2. KUBE-SERVICES
+3. KUBE-SVC-XXXX
+4. KUBE-SEP-XXXX
+5. DNAT (ClusterIP → PodIP)
+6. filter FORWARD
+7. nat POSTROUTING (필요 시 SNAT)
+```
+
+---
+
+# 7️⃣ 핵심 개념 정리
+
+| 개념 | 설명 |
+|------|------|
+| ClusterIP | 가상 IP, 실제 Pod IP가 아님 |
+| kube-proxy | iptables 규칙 생성 |
+| KUBE-SVC | Service 체인 |
+| KUBE-SEP | Endpoint 체인 |
+| DNAT | 목적지 주소 변환 |
+| FORWARD | 노드가 라우터 역할 수행 |
+| conntrack | NAT 세션 상태 유지 |
+
+---
+
+# 📌 핵심 포인트 한 줄 요약
+
+> Kubernetes Service 통신은 **ClusterIP → iptables DNAT → Pod IP 변환** 과정이며,  
+> kube-proxy가 생성한 iptables 체인이 이를 제어한다.
+
+
+# 장애 시나리오
+```
+Pod A
+  ↓ (veth)
+Node의 Linux Bridge (CNI)
+  ↓
+iptables (FORWARD 체인)
+  ↓
+라우팅 테이블
+  ↓
+Pod B
+```
+
+## 1. Worker 노드의 방화벽 활성화
+```
+sudo ufw status
+sudo ufw enable
+sudo ufw default deny routed
+```
+
+## 2. 시스템 환경 변수 설정
+- 브리지 인터페이스를 통과하는 패킷을 iptables를 거치지 않도록한다
+```
+# 환경변수 설정
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+bridge-nf-call-iptables=0
+EOF
+
+# 반영
+
+```
+→ kube-proxy가 만든 NAT/DNAT 규칙이 적용되지 않음
+→ Service 통신이 실패할 수 있음
 
 
 
